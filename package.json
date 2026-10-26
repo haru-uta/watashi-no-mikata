@@ -1,0 +1,1 @@
+{"name":"watashi-no-mikata","private":true,"type":"module","scripts":{"e2e":"node tools/e2e.mjs"},"devDependencies":{"puppeteer-core":"^23.11.1"}}
