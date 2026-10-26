@@ -18,7 +18,7 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream' });
   fs.createReadStream(file).pipe(res);
 }).listen(0);
-const BASE = `http://127.0.0.1:${server.address().port}/`;
+const BASE = process.env.E2E_BASE || `http://127.0.0.1:${server.address().port}/`;
 
 const problems = [];
 const passed = [];
