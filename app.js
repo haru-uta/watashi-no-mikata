@@ -1,5 +1,6 @@
 import { MENU, ANSWERS, WANTS, FEELINGS, BODY, PAIN, ROUTINES, TIMER_MINUTES, NEXT_ITEMS, MONEY, MONEY_LEVELS, GOODS,
   SAFETY, CALLS } from './data.js';
+import * as Sync from './sync.js';
 
 // ---------- 設定（この端末だけ）----------
 // 聴覚過敏の かたが いるので、音は ぜんぶ さいしょ OFF。読み上げは スピーカーの ボタンを おした ときだけ。
@@ -254,7 +255,11 @@ ROUTES.steps = ({ kind, i, k }) => {
     h('div', { class: 'row between pager' },
       h('button', { class: 'btn', disabled: k === 0, onclick: () => go('steps', { kind, i, k: k - 1 }, true) }, ic('back'), say2('まえ', '前へ')),
       h('span', { class: 'count' }, `${k + 1} / ${n}`),
-      h('button', { class: 'btn primary', onclick: () => { chime('ok'); go('steps', { kind, i, k: k + 1 }, true); } },
+      h('button', { class: 'btn primary', onclick: () => {
+        chime('ok');
+        if (k + 1 === n) Sync.record((kind === 'routine' ? 'r:' : 's:') + set.id);
+        go('steps', { kind, i, k: k + 1 }, true);
+      } },
         kind === 'routine' ? [ic('check'), say2('できた', 'できた')] : [say2('つぎ', '次へ'), ic('next')])));
 };
 
@@ -314,6 +319,7 @@ ROUTES.timerRun = () => {
     stopTimerView();
     box.classList.add('finished');
     chime('timer');
+    Sync.record('t:' + Math.round(T.total / 60000));
     if (SET.vibrate && navigator.vibrate) navigator.vibrate([200, 300, 200]);
     try { wakeLock && wakeLock.release(); } catch { /* なし */ }
     pauseBtn.hidden = true;
@@ -359,6 +365,7 @@ ROUTES.pay = ({ lv, n }) => {
         msg.hidden = false; msg.className = 'hint good';
         msg.textContent = say2(`せいかい！ 1000えん − ${price}えん ＝ ${change}えん`, `正解です。1,000円 − ${price}円 ＝ ${change}円`);
         chime('ok'); nextBtn.hidden = false;
+        Sync.record('m:' + lv);
       } else {
         e.currentTarget.disabled = true; e.currentTarget.classList.add('dim');
         msg.hidden = false; msg.className = 'hint';
@@ -386,7 +393,7 @@ ROUTES.pay = ({ lv, n }) => {
     h('button', { class: 'btn primary wide', onclick: () => {
       const sum = tray.reduce((a, b) => a + b, 0);
       msg.hidden = false;
-      if (sum === price) { msg.className = 'hint good'; msg.textContent = say2('ぴったり！ よく できたね。', 'ちょうどです。よくできました。'); chime('ok'); nextBtn.hidden = false; }
+      if (sum === price) { msg.className = 'hint good'; msg.textContent = say2('ぴったり！ よく できたね。', 'ちょうどです。よくできました。'); chime('ok'); if (nextBtn.hidden) Sync.record('m:' + lv); nextBtn.hidden = false; }
       else if (sum < price) { msg.className = 'hint'; msg.textContent = say2(`あと ${price - sum}えん たりないよ。`, `あと${price - sum}円足りません。`); }
       else { msg.className = 'hint'; msg.textContent = say2(`${sum - price}えん おおいよ。おかねを おすと もどせるよ。`, `${sum - price}円多いです。お金を押すと戻せます。`); }
     } }, say2('はらう', '払う')),
@@ -437,7 +444,7 @@ ROUTES.callTalk = ({ i, k }) => {
     h('div', { class: 'row between pager' },
       h('button', { class: 'btn', disabled: k === 0, onclick: () => go('callTalk', { i, k: k - 1 }, true) }, ic('back'), say2('まえ', '前へ')),
       h('span', { class: 'count' }, `${k + 1} / ${c.lines.length}`),
-      h('button', { class: 'btn primary', onclick: () => go('callTalk', { i, k: k + 1 }, true) }, say2('つぎ', '次へ'), ic('next'))));
+      h('button', { class: 'btn primary', onclick: () => { if (k + 1 === c.lines.length) Sync.record('c:' + c.num); go('callTalk', { i, k: k + 1 }, true); } }, say2('つぎ', '次へ'), ic('next'))));
 };
 
 // ---------- ヘルプカード ----------
@@ -499,6 +506,7 @@ ROUTES.parent = () => {
         h('button', { class: 'btn small' + (kid() ? ' primary' : ''), onclick: () => { SET.mode = 'k'; saveSet(); draw('parent'); } }, 'こども'),
         h('button', { class: 'btn small' + (!kid() ? ' primary' : ''), onclick: () => { SET.mode = 'a'; saveSet(); draw('parent'); } }, 'おとな')),
       h('p', { class: 'muted' }, 'こども: ひらがなとやさしい言葉。おとな: 漢字まじりの丁寧な言葉と落ち着いた見た目。')),
+    aikoPanel(),
     h('section', { class: 'panel' }, h('h2', {}, '音（最初はすべてオフです）'),
       h('p', { class: 'muted' }, '聴覚過敏のある方に配慮し、音は自動では鳴りません。読み上げは、スピーカーのボタンを押したときだけです。'),
       h('label', { class: 'slider' }, h('span', {}, '読み上げの音量'),
@@ -513,6 +521,7 @@ ROUTES.parent = () => {
     h('section', { class: 'panel' }, h('h2', {}, 'このアプリについて'),
       h('p', {}, '意思を伝える、生活の手順、時間の見通し、お金、安全の練習をするアプリです。診断や治療を目的としたものではありません。'),
       h('p', {}, '設定とヘルプカードの内容は、この端末の中だけに保存されます。インターネットには送信しません。'),
+      h('p', {}, 'あいことばを入れた端末では、練習の記録（種類・回数・日時）と「こども／おとな」だけを会社の置き場に送ります。名前・ヘルプカードは送りません。'),
       h('p', {}, '電話の練習では、実際に電話はかかりません。'),
       h('p', { class: 'muted' }, '訪問看護ステーションはるうた')),
     h('section', { class: 'panel' }, h('h2', {}, 'ヘルプカードを消す'),
@@ -523,9 +532,158 @@ ROUTES.parent = () => {
           h('button', { class: 'btn danger', onclick: () => { try { localStorage.removeItem(HELP_KEY); } catch { /* なし */ } closeModal(); draw('parent'); } }, '消す'))) }, '消す')));
 };
 
+// ---------- 練習の記録・あいことば（家族・支援者の設定の中）----------
+// あいことばは 最初に 1回だけ 作って 変えない（支援者は 電子カルテに 書く）。2026-10-26 代表決定
+const fmtWhen = (t) => {
+  const d = new Date(t);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+function kindName(k) {
+  const [g, id] = k.split(':');
+  if (g === 'r') { const r = ROUTINES.find((x) => x.id === id); return ['手順', r ? r.a : id]; }
+  if (g === 's') { const r = SAFETY.find((x) => x.id === id); return ['安全', r ? r.a : id]; }
+  if (g === 'm') { const L = MONEY_LEVELS[Number(id)]; return ['お金', L ? `${Number(id) + 1}. ${L.a}` : id]; }
+  if (g === 'c') { const c = CALLS.find((x) => x.num === id); return ['電話の練習', c ? `${c.num} ${c.a}` : id]; }
+  if (g === 't') return ['タイマー', `${id}分`];
+  return ['その他', k];
+}
+function syncStatus() {
+  const I = Sync.info();
+  if (I.err === 'nokey') return h('p', { class: 'hint' }, 'このあいことばは置き場に見つかりません。カルテの文字を確かめて、入れ直してください。');
+  if (I.pending) return h('p', { class: 'muted' }, `まだ送っていない記録が ${I.pending} 件あります。電波がつながると自動で送ります。`, I.dropped ? `（たまりすぎたため、古い記録 ${I.dropped} 件は消えました）` : '');
+  if (I.lastOk) return h('p', { class: 'muted' }, `記録は送ってあります（最後に確かめた日時 ${fmtWhen(I.lastOk)}）。`);
+  return null;
+}
+// 言葉の とちゅうで 改行しない ように、言葉ごとに 包む
+const keyBox = (display) => h('p', { class: 'aiko-key', 'aria-label': 'あいことば' },
+  String(display || '').split('・').map((w, i) => [i ? h('span', { class: 'aiko-dot' }, '・') : null, h('span', { class: 'aiko-w' }, w)]));
+function aikoPanel() {
+  if (!Sync.enabled()) return h('section', { class: 'panel' }, h('h2', {}, '練習の記録・あいことば'), h('p', { class: 'muted' }, '準備中です。'));
+  const I = Sync.info();
+  if (!I.key) {
+    return h('section', { class: 'panel' }, h('h2', {}, '練習の記録・あいことば'),
+      h('p', {}, 'あいことばを入れると、この端末でした練習の記録（種類・回数・日時だけ）が会社の置き場に送られ、支援者がどの端末からでも見られます。'),
+      I.pending ? h('p', { class: 'muted' }, `この端末には、あいことばを入れる前の練習の記録が ${I.pending} 件あります。`) : null,
+      h('div', { class: 'row' },
+        h('button', { class: 'btn small primary', onclick: () => go('aikotoba') }, 'あいことばを入れる'),
+        h('button', { class: 'btn small', onclick: confirmCreate }, '新しく作る（はじめての人）')));
+  }
+  return h('section', { class: 'panel' }, h('h2', {}, '練習の記録・あいことば'),
+    h('p', { class: 'muted' }, 'この端末のあいことば'), keyBox(I.display), syncStatus(),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn small primary', onclick: () => go('records') }, '練習の記録を見る'),
+      h('button', { class: 'btn small', onclick: confirmForget }, 'この端末から外す')));
+}
+const errText = (e) => ({
+  nokey: 'このあいことばは見つかりません。電子カルテの文字を確かめてください。',
+  code: '職員用コードが違います。',
+  net: 'インターネットにつながりません。電波のある所で、もう一度ためしてください。',
+  limit: '今日はこれ以上作れません。明日もう一度ためしてください。',
+  busy: '混み合っています。少し待って、もう一度ためしてください。',
+}[e] || 'うまくいきませんでした。少し待って、もう一度ためしてください。');
+const okModal = (title, ...kids) => modal(h('h2', { class: 'adult' }, title), ...kids, h('div', { class: 'row center' }, h('button', { class: 'btn primary', onclick: closeModal }, '閉じる')));
+function confirmCreate() {
+  // 職員用コードは 職員だけが 知っている（利用者さんが うっかり 作りなおさない ように）
+  const codeIn = h('input', { type: 'text', inputmode: 'numeric', maxlength: '8', autocomplete: 'off', class: 'code-input', 'aria-label': '職員用コード' });
+  modal(h('h2', { class: 'adult' }, '新しいあいことばを作りますか？'),
+    h('p', { class: 'adult' }, 'あいことばは1人に1つです。作ったら変えません。'),
+    h('p', { class: 'adult' }, 'すでに持っている人は、作らずに「あいことばを入れる」から入れてください（電子カルテに書いてあります）。'),
+    h('label', { class: 'field adult' }, h('span', {}, '職員用コード（6けた）'), codeIn),
+    h('div', { class: 'row center' },
+      h('button', { class: 'btn', onclick: closeModal }, 'やめる'),
+      h('button', { class: 'btn primary', onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        const r = await Sync.create(codeIn.value).catch(() => ({ ok: false, err: 'net' }));
+        if (!r.ok) { okModal('作れませんでした', h('p', { class: 'adult' }, errText(r.err))); return; }
+        const keep = Sync.info().pending > 0 ? await askKeep(Sync.info().pending) : false;
+        const lk = await Sync.lookup(r.key, keep).catch(() => ({ ok: false, err: 'net' }));
+        if (lk.ok) Sync.sync(SET.mode).catch(() => {});
+        modal(h('h2', { class: 'adult' }, 'あいことばができました'), keyBox(r.display),
+          h('p', { class: 'adult' }, '支援者は、このあいことばを電子カルテに書いてください。ご家族にも控えてもらってください。'),
+          lk.ok ? null : h('p', { class: 'hint' }, `この端末への登録はまだです。「あいことばを入れる」から、上のあいことばを入れてください。`),
+          h('div', { class: 'row center' }, h('button', { class: 'btn primary', onclick: () => { closeModal(); draw('parent'); } }, 'カルテに書いた')));
+      } }, '作る')));
+}
+function confirmForget() {
+  const I = Sync.info();
+  modal(h('h2', { class: 'adult' }, 'この端末からあいことばを外しますか？'),
+    h('p', { class: 'adult' }, '置き場の記録は消えません。あいことばを入れれば、また見られます。'),
+    I.pending ? h('p', { class: 'hint' }, `まだ送っていない記録が ${I.pending} 件あります。外すと、この ${I.pending} 件は消えます。電波のある所で送ってから外すのがおすすめです。`) : null,
+    h('div', { class: 'row center' },
+      h('button', { class: 'btn', onclick: closeModal }, 'やめる'),
+      h('button', { class: 'btn danger', onclick: () => { Sync.forget(); closeModal(); draw('parent'); } }, '外す')));
+}
+function askKeep(n) {
+  return new Promise((resolve) => {
+    modal(h('h2', { class: 'adult' }, 'あいことばを入れる前の記録'),
+      h('p', { class: 'adult' }, `この端末には、あいことばを入れる前にした練習の記録が ${n} 件あります。この人の記録に入れますか？`),
+      h('p', { class: 'muted adult' }, '支援者の端末で見本を見せたときの記録なら「入れない」を選んでください。'),
+      h('div', { class: 'row center' },
+        h('button', { class: 'btn', onclick: () => { closeModal(); resolve(false); } }, '入れない'),
+        h('button', { class: 'btn primary', onclick: () => { closeModal(); resolve(true); } }, '入れる')));
+  });
+}
+ROUTES.aikotoba = () => {
+  const input = h('input', { type: 'text', class: 'aiko-input', placeholder: '例）さくら・みかん・つばめ・くじら', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+  const msg = h('p', { class: 'hint', hidden: true });
+  const btn = h('button', { class: 'btn primary wide', onclick: async () => {
+    msg.hidden = true;
+    if (!input.value.trim()) { msg.hidden = false; msg.textContent = 'あいことばを入れてください。'; return; }
+    btn.disabled = true;
+    if (Sync.info().key && Sync.info().pending) await Sync.sync().catch(() => {});
+    const left = Sync.info();
+    if (left.key && left.pending) {
+      btn.disabled = false;
+      msg.hidden = false; msg.textContent = `前のあいことば（${left.display}）の、まだ送っていない記録が ${left.pending} 件あります。電波のある所で送ってから切り替えてください。`;
+      return;
+    }
+    const keep = !left.key && left.pending > 0 ? await askKeep(left.pending) : false;
+    const r = await Sync.lookup(input.value, keep).catch(() => ({ ok: false, err: 'net' }));
+    btn.disabled = false;
+    if (!r.ok) { msg.hidden = false; msg.textContent = errText(r.err); return; }
+    if (r.state.mode && r.state.mode !== SET.mode) { SET.mode = r.state.mode; saveSet(); }
+    go('records', null, true);
+  } }, '呼び出す');
+  return h('div', { class: 'screen adult form' }, bar('あいことばを入れる'),
+    h('p', {}, '電子カルテに書いてあるあいことば（4つの言葉）を入れてください。区切りは「・」でも空白でも、なくてもかまいません。'),
+    h('label', { class: 'field' }, h('span', {}, 'あいことば'), input), msg, btn,
+    h('p', { class: 'muted' }, '置き場に送るのは、練習の種類・回数・日時と「こども／おとな」だけです。名前やヘルプカードは送りません。'));
+};
+ROUTES.records = () => {
+  const I = Sync.info();
+  const body = h('div', { class: 'records' });
+  const st = h('div', {}, syncStatus());
+  const paint = () => {
+    const groups = {};
+    for (const [k, v] of Object.entries(Sync.totals())) {
+      const [g, name] = kindName(k);
+      (groups[g] ||= []).push({ name, ...v });
+    }
+    const order = ['手順', 'お金', '安全', '電話の練習', 'タイマー', 'その他'].filter((g) => groups[g]);
+    const recent = Sync.recent(20);
+    body.replaceChildren(
+      order.length ? '' : h('p', { class: 'muted center' }, 'まだ記録はありません。手順・お金・安全・電話・タイマーの練習を最後までやると記録されます。'),
+      ...order.map((g) => h('section', { class: 'panel rec-group' }, h('h2', {}, g),
+        h('ul', { class: 'rec-list' }, groups[g].sort((a, b) => b.last - a.last).map((x) => h('li', {},
+          h('span', { class: 'rec-name' }, x.name), h('b', { class: 'rec-n' }, `${x.n}回`), h('small', { class: 'muted rec-when' }, `最後 ${fmtWhen(x.last)}`)))))),
+      recent.length ? h('section', { class: 'panel' }, h('h2', {}, 'さいきんの記録'),
+        h('ul', { class: 'rec-list recent' }, recent.map((e) => { const [g, name] = kindName(e.k); return h('li', {}, h('small', { class: 'muted rec-when' }, fmtWhen(e.t)), h('span', { class: 'rec-name' }, `${g}：${name}`)); }))) : '');
+    st.replaceChildren(syncStatus() || '');
+  };
+  paint();
+  const off = Sync.onChange(() => { if (app.dataset.screen === 'records' && body.isConnected) paint(); else off(); });
+  if (I.key) Sync.sync(SET.mode).catch(() => {});
+  return h('div', { class: 'screen adult' }, bar('練習の記録'),
+    I.key ? h('div', { class: 'panel' }, h('p', { class: 'muted' }, 'あいことば'), keyBox(I.display), st)
+      : h('p', { class: 'muted' }, 'あいことばが入っていないので、この端末の中の記録だけです。'),
+    body);
+};
+
 // ---------- はじまり ----------
+Sync.useMode(() => SET.mode);
+if (Sync.info().key) Sync.sync().catch(() => {});
 const startAt = SET.mode ? 'title' : 'first';
 history.replaceState({ name: startAt }, '');
 draw(startAt);
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
-window.__app = { go, SET, get timer() { return timerState; } };
+window.__app = { go, SET, Sync, get timer() { return timerState; } };

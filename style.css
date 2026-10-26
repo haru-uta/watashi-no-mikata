@@ -416,3 +416,20 @@ body.mode-a .ans-mark, body.mode-a .show-text, body.mode-a .left-text { font-fam
 body.big .tabs button { font-size: .82em; padding: 4px 2px; }
 .parent-btn small { white-space: nowrap; }
 .help-phone { white-space: nowrap; font-size: clamp(22px, 7vw, 1.6em) !important; }
+
+/* 練習の記録・あいことば */
+.aiko-key { margin: 4px 0 8px; font-family: var(--round); font-size: 1.35em; font-weight: 900; color: var(--sage-dd); letter-spacing: .04em; line-height: 1.5; }
+.aiko-w { white-space: nowrap; }
+.aiko-dot { color: var(--muted); }
+.form .field input.aiko-input { font-size: 1.1em; min-height: 52px; }
+.rec-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rec-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.rec-list li:first-child { border-top: 0; }
+.rec-name { flex: 1 1 10em; font-weight: 700; }
+.rec-n { color: var(--sage-dd); white-space: nowrap; }
+.rec-when { white-space: nowrap; }
+.rec-list.recent li { gap: 2px 12px; }
+.rec-list.recent .rec-name { font-weight: 400; }
+.records { display: flex; flex-direction: column; gap: 14px; }
+.modal .field { display: flex; flex-direction: column; gap: 4px; font-weight: 700; margin: 8px 0; }
+.modal .field input { font: inherit; font-size: 1.15em; letter-spacing: .1em; padding: 10px 12px; min-height: 50px; border-radius: 14px; border: 0; background: #fff; box-shadow: 0 0 0 2px var(--line) inset; }

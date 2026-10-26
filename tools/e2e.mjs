@@ -4,6 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import puppeteer from 'puppeteer-core';
+import { createRequire } from 'node:module';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, '$1')), '..');
 const OUT = path.join(ROOT, 'out', 'e2e', new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19));
@@ -11,7 +12,27 @@ fs.mkdirSync(OUT, { recursive: true });
 const BROWSER = process.env.E2E_BROWSER || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.webmanifest': 'application/manifest+json' };
 
+// 練習の記録の置き場（GAS）の にせ物。本物と 同じ コード（watashi-no-mikata-gas）を node で うごかす
+const { makeGas } = createRequire(import.meta.url)(path.join(ROOT, '..', 'watashi-no-mikata-gas', 'tests', 'fake-gas.cjs'));
+const store = makeGas();
+let storeDown = false;
 const server = http.createServer((req, res) => {
+  const url = new URL(req.url, 'http://x');
+  if (url.pathname === '/config.js') {
+    res.writeHead(200, { 'content-type': 'text/javascript' });
+    return res.end("export const STORE_URL = '/__store';\n");
+  }
+  if (url.pathname === '/__store') {
+    if (storeDown) return req.socket.destroy(); // 電波が ない ときの まね
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      const out = store.sb.doPost({ postData: { contents: body } }).body;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(out);
+    });
+    return;
+  }
   const p = path.join(ROOT, decodeURIComponent(new URL(req.url, 'http://x').pathname));
   const file = fs.existsSync(p) && fs.statSync(p).isDirectory() ? path.join(p, 'index.html') : p;
   if (!file.startsWith(ROOT) || !fs.existsSync(file)) { res.writeHead(404); return res.end(); }
@@ -109,6 +130,110 @@ async function step(name, fn) {
   try { await fn(); passed.push(name); } catch (e) { problems.push(`[試験] ${name}: ${e.message}`); }
 }
 
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const syncInfo = (page) => page.evaluate(() => window.__app.Sync.info());
+async function waitFor(page, fn, what, ms = 8000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { if (await page.evaluate(fn)) return; await wait(200); }
+  throw new Error(`${what} に ならない`);
+}
+async function openParent(page) {
+  await page.goto(BASE, { waitUntil: 'networkidle0' });
+  await page.evaluate(() => window.__app.go('parent'));
+}
+// あいことば: 作る → 練習が 置き場へ 届く → 電波なしで ためる → べつの 端末（支援者の iPad）で よびだす → 外す
+async function aikotobaTest(browser, page, v, mode, T, noAutoSound) {
+  storeDown = false;
+  await openParent(page);
+  await shot(page, T('あいことば_なし'));
+  const before = (await syncInfo(page)).pending;
+  if (!before) throw new Error('あいことばの 前の 練習が ためられて いない');
+  await click(page, '新しく作る');
+  await page.type('.modal .code-input', '000000');
+  await click(page, '作る');
+  await waitFor(page, () => /職員用コードが違います/.test(document.querySelector('.modal')?.textContent || ''), '違う職員用コードの 知らせ');
+  await shot(page, T('あいことば_コード違い'));
+  await click(page, '閉じる');
+  await click(page, '新しく作る');
+  await page.type('.modal .code-input', '１２３４５６');
+  await shot(page, T('あいことば_作る確認'));
+  await click(page, '作る');
+  await waitFor(page, () => !!document.querySelector('.modal') && /入れる前の記録/.test(document.querySelector('.modal').textContent), '入れる前の記録の 問い');
+  await shot(page, T('あいことば_前の記録'));
+  await click(page, '入れない');
+  await waitFor(page, () => /あいことばができました/.test(document.querySelector('.modal')?.textContent || ''), 'できました');
+  await shot(page, T('あいことば_できた'));
+  const display = await page.$eval('.modal .aiko-key', (e) => e.textContent);
+  if (display.split('・').length !== 4) throw new Error(`あいことばの 形: ${display}`);
+  await click(page, 'カルテに書いた');
+  let I = await syncInfo(page);
+  if (I.display !== display || I.pending !== 0) throw new Error(`登録の あと: ${JSON.stringify({ d: I.display, p: I.pending })}`);
+  await shot(page, T('あいことば_あり'));
+
+  // 手洗いを 最後まで → 置き場へ 届く
+  await page.evaluate(() => window.__app.go('steps', { kind: 'routine', i: 0, k: 0 }));
+  const n = await page.evaluate(() => document.querySelectorAll('.dots span').length);
+  for (let k = 0; k < n; k++) await click(page, 'できた');
+  await waitFor(page, () => window.__app.Sync.info().pending === 0 && !!window.__app.Sync.info().state?.totals?.['r:tearai'], '手洗いが 置き場に 届く');
+  const row = store.rows.find((r) => r[1] === display);
+  if (!row || JSON.parse(row[4]).totals['r:tearai'].n !== 1) throw new Error('置き場の 手洗いの 回数が 1 で ない');
+  if (JSON.stringify(store.rows).includes('はるうた たろう')) throw new Error('ヘルプカードが 置き場に 入った');
+
+  // 電波なし: 電話の 練習を 最後まで → ためる
+  storeDown = true;
+  await page.evaluate(() => window.__app.go('callTalk', { i: 0, k: 0 }));
+  const lines = await page.evaluate(() => Number(document.querySelector('.count').textContent.split('/')[1]));
+  for (let k = 0; k < lines; k++) await click(page, mode === 'k' ? 'つぎ' : '次へ');
+  await waitFor(page, () => window.__app.Sync.info().err === 'net', '電波なしの 印', 12000);
+  if ((await syncInfo(page)).pending !== 1) throw new Error('電波なしで ためた 数が 1 で ない');
+  await page.evaluate(() => window.__app.go('records'));
+  await waitFor(page, () => /まだ送っていない記録が 1 件/.test(document.body.textContent), 'まだ送っていない 表示', 12000);
+  await shot(page, T('あいことば_電波なし'));
+  storeDown = false;
+  await page.evaluate(() => window.__app.Sync.sync());
+  await waitFor(page, () => window.__app.Sync.info().pending === 0, '電波が もどって 送る');
+
+  // 記録の 画面
+  await page.evaluate(() => window.__app.go('records'));
+  await wait(500);
+  await shot(page, T('あいことば_記録'));
+  const rec = await page.$eval('.records', (e) => e.textContent);
+  if (!/手洗い/.test(rec) || !/1回/.test(rec) || !/119/.test(rec)) throw new Error(`記録の 画面: ${rec.slice(0, 80)}`);
+
+  // べつの 端末（支援者の iPad）で よびだす。モードは 利用者さんに あわせる
+  const ctx2 = await browser.createBrowserContext();
+  const p2 = await ctx2.newPage();
+  await p2.setViewport(v);
+  await p2.goto(BASE, { waitUntil: 'networkidle0' });
+  await click(p2, mode === 'k' ? 'おとな' : 'こども');
+  await p2.evaluate(() => window.__app.go('aikotoba'));
+  await shot(p2, T('あいことば_入れる'));
+  await p2.type('.aiko-input', 'さくら さくら さくら さくら');
+  await click(p2, '呼び出す');
+  await waitFor(p2, () => /見つかりません/.test(document.body.textContent), '違う あいことばの 知らせ');
+  await shot(p2, T('あいことば_違う'));
+  await p2.$eval('.aiko-input', (e) => { e.value = ''; });
+  await p2.type('.aiko-input', display.replace(/・/g, ' '));
+  await click(p2, '呼び出す');
+  await waitFor(p2, () => document.getElementById('app').dataset.screen === 'records' && /手洗い/.test(document.body.textContent), '支援者の 端末で 記録が 見える');
+  await shot(p2, T('あいことば_支援者の端末'));
+  if ((await p2.evaluate(() => window.__app.SET.mode)) !== mode) throw new Error('モードが 利用者さんに あわない');
+  if (!/119/.test(await p2.$eval('.records', (e) => e.textContent))) throw new Error('電波なしの あとで 送った 記録が 見えない');
+  // 支援者の 端末で 練習 → 利用者さんの 端末にも 出る
+  await p2.evaluate(() => window.__app.Sync.record('m:1'));
+  await waitFor(p2, () => window.__app.Sync.info().pending === 0, '支援者の 端末から 送る');
+  await page.evaluate(() => window.__app.go('records'));
+  await waitFor(page, () => /2\. /.test(document.querySelector('.records')?.textContent || ''), '利用者さんの 端末に 支援者の 記録が 出る');
+  // 外す
+  await p2.evaluate(() => window.__app.go('parent'));
+  await click(p2, 'この端末から外す');
+  await shot(p2, T('あいことば_外す'));
+  await click(p2, '外す', '.modal button');
+  if ((await syncInfo(p2)).key) throw new Error('外れない');
+  await noAutoSound('あいことば');
+  await ctx2.close();
+}
+
 const browser = await puppeteer.launch({ executablePath: BROWSER, headless: 'new', args: ['--no-first-run', '--mute-audio'] });
 const VIEWS = [
   { tag: 'se', width: 375, height: 667, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
@@ -124,7 +249,7 @@ for (const v of VIEWS.filter((x) => !only || x.tag === only)) {
     await page.setViewport(v);
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
-    page.on('console', (m) => { if (m.type() === 'error' && !/fonts\.g|favicon/.test(m.text())) errors.push(m.text()); });
+    page.on('console', (m) => { if (m.type() === 'error' && !/fonts\.g|favicon|ERR_EMPTY_RESPONSE/.test(m.text())) errors.push(m.text()); });
     // 音が 鳴ったら 記録する（聴覚過敏への 配慮: 自動で 鳴っては いけない）
     await page.evaluateOnNewDocument(() => {
       window.__sounds = [];
@@ -257,6 +382,7 @@ for (const v of VIEWS.filter((x) => !only || x.tag === only)) {
       }
       await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('mikata-settings')); s.big = false; localStorage.setItem('mikata-settings', JSON.stringify(s)); });
     });
+    if (!process.env.E2E_BASE) await step(`${T('あいことば')}`, () => aikotobaTest(browser, page, v, mode, T, noAutoSound));
     for (const e of errors) problems.push(`[${v.tag}_${mode} エラー] ${e}`);
     await ctx.close();
   }
